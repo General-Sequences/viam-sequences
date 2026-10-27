@@ -22,11 +22,11 @@ async def main(wait_s: float) -> None:
         "localhost:8080", RobotClient.Options(refresh_interval=0, dial_options=DialOptions(insecure=True,
                                                                                            disable_webrtc=True)))
     try:
-        arm = Arm.from_robot(robot, "arm")
-        ready_by = time.monotonic() + 600            # the module's first run makes its Python environment
+        # the machine's resources come up once the module's first run has made its Python environment
+        ready_by = time.monotonic() + 600
         while True:
             try:
-                service = Generic.from_robot(robot, "sequences")
+                arm, service = Arm.from_robot(robot, "arm"), Generic.from_robot(robot, "sequences")
                 break
             except ResourceNotFoundError:
                 if time.monotonic() > ready_by:
