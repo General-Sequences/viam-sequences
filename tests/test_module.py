@@ -29,8 +29,8 @@ def test_meta_json_publishes_the_model_the_code_registers_and_an_entrypoint_that
     (model,) = meta["models"]
     assert (model["api"], model["model"]) == ("rdk:service:generic", str(module.SequencesPolicy.MODEL))
     assert meta["module_id"].split(":")[0] == model["model"].split(":")[0] and meta["visibility"] == "public"
-    entry = ROOT / meta["entrypoint"]
-    assert entry.is_file() and os.access(entry, os.X_OK)
+    for script in (meta["entrypoint"], meta["first_run"]):
+        assert (ROOT / script).is_file() and os.access(ROOT / script, os.X_OK), script
 
 
 def test_validate_config_names_the_arm_the_gripper_and_the_cameras_and_refuses_a_bad_config():

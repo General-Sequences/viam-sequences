@@ -11,6 +11,7 @@ import sys
 import time
 
 from viam.components.arm import Arm
+from viam.errors import ResourceNotFoundError
 from viam.robot.client import RobotClient
 from viam.rpc.dial import DialOptions
 from viam.services.generic import Generic
@@ -21,7 +22,17 @@ async def main(wait_s: float) -> None:
         "localhost:8080", RobotClient.Options(refresh_interval=0, dial_options=DialOptions(insecure=True,
                                                                                            disable_webrtc=True)))
     try:
-        service, arm = Generic.from_robot(robot, "sequences"), Arm.from_robot(robot, "arm")
+        arm = Arm.from_robot(robot, "arm")
+        ready_by = time.monotonic() + 600            # the module's first run makes its Python environment
+        while True:
+            try:
+                service = Generic.from_robot(robot, "sequences")
+                break
+            except ResourceNotFoundError:
+                if time.monotonic() > ready_by:
+                    raise
+                await asyncio.sleep(5)
+                await robot.refresh()
         before = list((await arm.get_joint_positions()).values)
         idle = await service.do_command({"command": "status"})
         started = await service.do_command({"command": "start"})

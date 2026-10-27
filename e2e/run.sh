@@ -3,6 +3,7 @@
 # gripper and this module (run.sh, as a machine runs it), driven through the policy named viam-e2e by e2e/client.py.
 #   SEQUENCES_API_KEY / SEQUENCES_BASE_URL: the account the policy is deployed on (the module's environment)
 #   PYTHON: a Python with viam-sdk, for the client
+#   MODULE: the module's archive (build.sh's dist/archive.tar.gz), installed as a machine installs it; unset, ./run.sh
 set -u
 here=$(cd "$(dirname "$0")/.." && pwd)
 work=${WORK:-$here/.e2e}
@@ -27,7 +28,7 @@ json.dump({
         {"name": "sequences", "api": "rdk:service:generic", "model": "general-sequences:sequences:policy",
          "attributes": {"policy": "viam-e2e", "hz": 10, "replan_at": 5, "arm": "arm", "gripper": "hand",
                         "cameras": {"front": "cam"}}}],
-    "modules": [{"type": "local", "name": "sequences", "executable_path": f"{here}/run.sh",
+    "modules": [{"type": "local", "name": "sequences", "executable_path": os.environ.get("MODULE") or f"{here}/run.sh",
                  "env": {"SEQUENCES_API_KEY": os.environ["SEQUENCES_API_KEY"],
                          "SEQUENCES_BASE_URL": os.environ["SEQUENCES_BASE_URL"]}}],
 }, open(out, "w"), indent=1)
