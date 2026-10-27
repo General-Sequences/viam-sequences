@@ -154,5 +154,6 @@ def test_stop_cuts_through_an_act_that_waits_and_ends_the_episode():
 
     asyncio.run(main())
     status = loop.status()
-    assert status["state"] == "stopped" and status["error"] is None and policy.ended == 1 and arm.stops == 1
+    assert status["state"] == "stopped" and "error" not in status and policy.ended == 1 and arm.stops == 1
+    assert "last_act_s" not in status                                   # no act was answered: left out, not 0
     assert policy.interrupted.is_set() and arm.moves == []

@@ -79,10 +79,13 @@ class Loop:
             await self.offload(policy.close)
 
     def status(self) -> dict:
+        """What the machine's page shows. A value not known yet - no act answered, no error - is left out: a Viam
+        command's answer carries a null as 0, which would read as an act of 0 s."""
         s = self.settings
-        return {"state": self.state, "policy": s.policy, "hz": s.hz, "steps": self.steps, "acts": self.acts,
-                "rows_played": self.rows_played, "holds": self.holds,
-                "last_act_s": None if self.last_act_s is None else round(self.last_act_s, 3), "error": self.error}
+        out = {"state": self.state, "policy": s.policy, "hz": s.hz, "steps": self.steps, "acts": self.acts,
+               "rows_played": self.rows_played, "holds": self.holds,
+               "last_act_s": None if self.last_act_s is None else round(self.last_act_s, 3), "error": self.error}
+        return {k: v for k, v in out.items() if v is not None}
 
     # ── the loop ────────────────────────────────────────────────────────────────────────────────────────────────────
     async def run(self) -> None:
