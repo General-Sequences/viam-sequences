@@ -32,7 +32,7 @@ json.dump({
                          "SEQUENCES_BASE_URL": os.environ["SEQUENCES_BASE_URL"]}}],
 }, open(out, "w"), indent=1)
 PY
-"$server" --appimage-extract-and-run -config "$work/config.json" > "$work/server.log" 2>&1 &
+"$server" -no-tls -config "$work/config.json" > "$work/server.log" 2>&1 &     # local and plain: no certificate to ask for
 pid=$!
 trap 'kill $pid 2>/dev/null; wait $pid 2>/dev/null; rm -f "$work/config.json"' EXIT
 for _ in $(seq 1 120); do
