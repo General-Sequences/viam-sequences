@@ -13,27 +13,20 @@ A generic service (`rdk:service:generic`).
 
 1. Deploy your policy: `seq deploy`. Its name is what you put in `policy`.
 2. Give this machine a key of its own: `seq robot add --policy pick-cube_user`. The key is printed once.
+3. On the machine, put the key in a file only its owner can read:
+
+   ```sh
+   sudo install -d -m 700 /etc/sequences
+   # then paste the key and press Ctrl-D
+   sudo sh -c 'umask 077 && cat > /etc/sequences/robot.key'
+   ```
+
+   The key never goes in the machine's config. The module's environment works too (`SEQUENCES_API_KEY`, used when
+   `key_file` is unset), but viam-server writes a module's environment into the machine's logs when it starts it.
 
 ### Configure
 
-Add the module's environment with the key, so it is never in the service's attributes (anyone who can see the
-machine's config reads those):
-
-```json
-{
-  "modules": [
-    {
-      "type": "registry",
-      "name": "general-sequences_sequences",
-      "module_id": "general-sequences:sequences",
-      "version": "latest",
-      "env": { "SEQUENCES_API_KEY": "<the robot key>" }
-    }
-  ]
-}
-```
-
-Then the service, naming the arm, gripper and cameras it drives:
+Add the module to the machine, then the service, naming the arm, gripper and cameras it drives:
 
 ```json
 {
@@ -43,6 +36,7 @@ Then the service, naming the arm, gripper and cameras it drives:
   "attributes": {
     "policy": "pick-cube_user",
     "hz": 15,
+    "key_file": "/etc/sequences/robot.key",
     "arm": "arm-1_user",
     "gripper": "gripper-1_user",
     "cameras": { "exterior_image_user": "cam-top_user", "wrist_image_user": "cam-wrist_user" },
@@ -56,6 +50,7 @@ Then the service, naming the arm, gripper and cameras it drives:
 | `policy` | yes | Your deployed policy's name. |
 | `hz` | yes | Steps a second: one row of the policy's answer is played each step. |
 | `arm` | yes | The arm the policy drives. |
+| `key_file` | no | The file on the machine that holds the robot key. Unset, `SEQUENCES_API_KEY` from the module's environment. |
 | `gripper` | no | The gripper the policy opens and closes. |
 | `cameras` | no | A list of camera names, or a map from the key your policy reads a frame by to the camera. |
 | `joints_key` | no | The key your policy reads the arm's joints by. Default `joints`. |

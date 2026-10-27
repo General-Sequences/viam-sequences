@@ -46,3 +46,11 @@ def test_a_wrong_attribute_is_refused_naming_it(attrs, said):
 def test_the_robot_key_is_refused_in_the_attributes_which_anyone_who_sees_the_config_reads(name):
     with pytest.raises(ValueError, match="SEQUENCES_API_KEY"):
         settings.read({"policy": "p", "hz": 10, "arm": "a", name: "sk-robot"})
+
+
+def test_key_file_is_an_absolute_path_on_the_machine():
+    attrs = {"policy": "p", "hz": 10, "arm": "a"}
+    assert settings.read({**attrs, "key_file": "/etc/sequences/robot.key"}).key_file == "/etc/sequences/robot.key"
+    assert settings.read(attrs).key_file is None
+    with pytest.raises(ValueError, match="key_file"):
+        settings.read({**attrs, "key_file": "robot.key"})

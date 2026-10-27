@@ -41,7 +41,7 @@ def test_validate_config_names_the_arm_the_gripper_and_the_cameras_and_refuses_a
 
 def test_start_status_stop_from_the_machines_page(monkeypatch):
     arm, policy = FakeArm([0.0] * 6), FakePolicy([[[0.0] * 6 + [0.0]] * 4])
-    monkeypatch.setattr(module, "connect", lambda model: policy)
+    monkeypatch.setattr(module, "connect", lambda model, **kw: policy)
     deps = {Arm.get_resource_name("arm"): arm, Gripper.get_resource_name("hand"): FakeGripper(),
             Camera.get_resource_name("cam"): FakeCamera()}
 
@@ -61,3 +61,23 @@ def test_start_status_stop_from_the_machines_page(monkeypatch):
     assert running["state"] == "running" and running["policy"] == "pick-cube_user" and running["steps"] > 2
     assert running["acts"] >= 1 and len(arm.moves) >= 1 and "front" in policy.observed[0]
     assert stopped["state"] == "stopped" and policy.ended == 1 and policy.closed
+
+
+def test_the_key_comes_from_key_file_on_the_machine_else_the_environment(tmp_path, monkeypatch):
+    """viam-server writes a module's environment into the machine's logs when it starts it, the key with it: a key
+    file read here never passes through the config or the logs."""
+    import sequence_ai
+
+    seen = {}
+    monkeypatch.setattr(sequence_ai, "connect", lambda model, api_key=None: seen.update(model=model, key=api_key) or 1)
+    key = tmp_path / "robot.key"
+    key.write_text("sk-robot-123\n")
+    module.connect("pick-cube_user", key_file=str(key))
+    assert seen == {"model": "pick-cube_user", "key": "sk-robot-123"}
+    module.connect("pick-cube_user")                       # SEQUENCES_API_KEY, as the SDK reads it
+    assert seen["key"] is None
+    for missing in (tmp_path / "missing.key", tmp_path / "empty.key"):
+        if missing.name == "empty.key":
+            missing.write_text("\n")
+        with pytest.raises(Exception, match=str(missing)):
+            module.connect("pick-cube_user", key_file=str(missing))

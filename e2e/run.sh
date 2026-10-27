@@ -1,7 +1,8 @@
 #!/bin/bash
 # e2e/run.sh: the module end to end on a Linux x86_64 machine, no robot - viam-server with Viam's fake arm, camera and
 # gripper and this module (run.sh, as a machine runs it), driven through the policy named viam-e2e by e2e/client.py.
-#   SEQUENCES_API_KEY / SEQUENCES_BASE_URL: the account the policy is deployed on (the module's environment)
+#   SEQUENCES_API_KEY / SEQUENCES_BASE_URL: the account the policy is deployed on - the key put in a file the service
+#   reads (key_file), as the docs say, and at the end the machine's log searched for it
 #   PYTHON: a Python with viam-sdk, for the client
 #   MODULE: the module's archive (build.sh's dist/archive.tar.gz), installed as a machine installs it; unset, ./run.sh
 set -u
@@ -14,9 +15,11 @@ if [ ! -x "$server" ]; then
     chmod +x "$server"
 fi
 umask 077
-python3 - "$here" "$work/config.json" <<'PY'
+python3 - "$here" "$work/config.json" "$work/robot.key" <<'PY'
 import json, os, sys
-here, out = sys.argv[1], sys.argv[2]
+here, out, key_file = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(key_file, "w") as f:
+    f.write(os.environ["SEQUENCES_API_KEY"] + "\n")
 json.dump({
     "network": {"bind_address": "localhost:8080"},
     "components": [
@@ -27,18 +30,18 @@ json.dump({
     "services": [
         {"name": "sequences", "api": "rdk:service:generic", "model": "general-sequences:sequences:policy",
          "attributes": {"policy": "viam-e2e", "hz": 10, "replan_at": 5, "arm": "arm", "gripper": "hand",
-                        "cameras": {"front": "cam"}}}],
+                        "cameras": {"front": "cam"}, "key_file": key_file}}],
     "modules": [{"type": "local", "name": "sequences", "executable_path": os.environ.get("MODULE") or f"{here}/run.sh",
-                 "env": {"SEQUENCES_API_KEY": os.environ["SEQUENCES_API_KEY"],
-                         "SEQUENCES_BASE_URL": os.environ["SEQUENCES_BASE_URL"]}}],
+                 "env": {"SEQUENCES_BASE_URL": os.environ["SEQUENCES_BASE_URL"]}}],
 }, open(out, "w"), indent=1)
 PY
 "$server" -no-tls -config "$work/config.json" > "$work/server.log" 2>&1 &     # local and plain: no certificate to ask for
 pid=$!
-trap 'kill $pid 2>/dev/null; wait $pid 2>/dev/null; rm -f "$work/config.json"' EXIT
+trap 'kill $pid 2>/dev/null; wait $pid 2>/dev/null; rm -f "$work/config.json" "$work/robot.key"' EXIT
 for _ in $(seq 1 120); do
     grep -q "sequences" "$work/server.log" 2>/dev/null && "${PYTHON:-python3}" -c \
         "import socket; socket.create_connection(('localhost', 8080), 1)" 2>/dev/null && break
     sleep 2
 done
 "${PYTHON:-python3}" "$here/e2e/client.py" "${WAIT_S:-300}"
+echo "the key in the machine's log: $(grep -c -F "$SEQUENCES_API_KEY" "$work/server.log") times"

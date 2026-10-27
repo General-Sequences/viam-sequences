@@ -8,7 +8,8 @@ what it must be - viam-server shows it on the machine's page before anything run
 What the policy reads goes under the keys its observe function reads them by: each camera under its key (a list of
 camera names puts each under its own name), the arm's joints under `joints_key`, the gripper under `gripper_key`, an
 `instruction` under `instruction_key`. The robot key is never an attribute: everyone who can see the machine's config
-reads its attributes, so it goes in the module's environment, SEQUENCES_API_KEY.
+reads its attributes. It goes in a file on the machine, `key_file` - viam-server writes a module's environment into the
+machine's logs when it starts it, so SEQUENCES_API_KEY there works but is logged.
 """
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ from typing import Any, Mapping, Optional
 UNITS = ("radians", "degrees")
 _KEY_ATTRS = ("api_key", "key", "SEQUENCES_API_KEY")
 _KNOWN = ("policy", "hz", "arm", "gripper", "cameras", "joints_key", "gripper_key", "instruction", "instruction_key",
-          "action_key", "replan_at", "valid_len", "joint_unit", "gripper_threshold", "max_joint_step_deg")
+          "action_key", "replan_at", "valid_len", "joint_unit", "gripper_threshold", "max_joint_step_deg", "key_file")
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,7 @@ class Settings:
     joint_unit: str = "radians"               # the policy's: the arm reads and takes degrees
     gripper_threshold: float = 0.5            # the gripper column at or above it: closed
     max_joint_step_deg: float = 20.0          # a row moving a joint further in one step is refused; 0: no limit
+    key_file: Optional[str] = None            # the robot key's file on the machine; unset, SEQUENCES_API_KEY
 
     def dependencies(self) -> list[str]:
         """The resources it drives, as viam-server is told them: the arm, the gripper, each camera once."""
@@ -89,8 +91,9 @@ def read(attrs: Mapping[str, Any]) -> Settings:
     """The attributes as Settings; ValueError naming the first one that is wrong."""
     for key in _KEY_ATTRS:
         if key in attrs:
-            raise ValueError(f"{key}: the robot key goes in the module's environment, SEQUENCES_API_KEY - never in its "
-                             "attributes, which everyone who can see this machine's config reads")
+            raise ValueError(f"{key}: the robot key goes in a file on the machine (key_file) or the module's environment "
+                             "(SEQUENCES_API_KEY) - never in its attributes, which everyone who can see this machine's "
+                             "config reads")
     unknown = sorted(set(attrs) - set(_KNOWN))
     if unknown:
         raise ValueError(f"unknown attribute {unknown[0]!r}; the attributes are {', '.join(_KNOWN)}")
@@ -105,7 +108,11 @@ def read(attrs: Mapping[str, Any]) -> Settings:
                  action_key=_name(attrs, "action_key"), replan_at=_steps(attrs, "replan_at"),
                  valid_len=_steps(attrs, "valid_len"), joint_unit=unit,
                  gripper_threshold=_number(attrs, "gripper_threshold", 0.5, low=float("-inf"), strict=False),
-                 max_joint_step_deg=_number(attrs, "max_joint_step_deg", 20.0, low=0, strict=False))
+                 max_joint_step_deg=_number(attrs, "max_joint_step_deg", 20.0, low=0, strict=False),
+                 key_file=_name(attrs, "key_file"))
+    if s.key_file and not s.key_file.startswith("/"):
+        raise ValueError(f"key_file must be an absolute path on the machine, as /etc/sequences/robot.key, not "
+                         f"{s.key_file!r}")
     if s.hz is None:
         raise ValueError("hz must be a number above 0 (it is required): the steps a second the arm plays")
     keys = [*s.cameras, s.joints_key] + ([s.gripper_key] if s.gripper else []) + \
