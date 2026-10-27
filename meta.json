@@ -1,0 +1,21 @@
+{
+  "$schema": "https://dl.viam.dev/module.schema.json",
+  "module_id": "general-sequences:sequences",
+  "visibility": "public",
+  "url": "https://github.com/General-Sequences/viam-sequences",
+  "description": "Drive your arm with a policy deployed on Sequences: your cameras and joints in, joint targets and the gripper out.",
+  "models": [
+    {
+      "api": "rdk:service:generic",
+      "model": "general-sequences:sequences:policy",
+      "short_description": "A deployed Sequences policy driving an arm, its gripper and cameras",
+      "markdown_link": "README.md#model-general-sequencessequencespolicy"
+    }
+  ],
+  "entrypoint": "run.sh",
+  "build": {
+    "build": "./build.sh",
+    "path": "dist/archive.tar.gz",
+    "arch": ["linux/amd64", "linux/arm64", "darwin/arm64"]
+  }
+}

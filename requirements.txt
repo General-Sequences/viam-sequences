@@ -1,0 +1,4 @@
+viam-sdk>=0.85.1,<0.86
+sequence-ai[observe]>=0.51.6,<0.52
+numpy>=1.24
+Pillow>=10
