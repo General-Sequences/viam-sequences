@@ -2,7 +2,7 @@
 The service's attributes, as a machine's config writes them: read once, checked, every refusal naming the attribute and
 what it must be - viam-server shows it on the machine's page before anything runs.
 
-    {"policy": "pick-cube", "hz": 15, "arm": "arm-1", "gripper": "gripper-1",
+    {"policy": "pick-cube_user", "hz": 15, "arm": "arm-1", "gripper": "gripper-1",
      "cameras": {"exterior_image": "cam-top", "wrist_image": "cam-wrist"}}
 
 What the policy reads goes under the keys its observe function reads them by: each camera under its key (a list of
