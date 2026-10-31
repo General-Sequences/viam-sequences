@@ -7,9 +7,10 @@ what it must be - viam-server shows it on the machine's page before anything run
 
 What the policy reads goes under the keys its observe function reads them by: each camera under its key (a list of
 camera names puts each under its own name), the arm's joints under `joints_key`, the gripper under `gripper_key`, an
-`instruction` under `instruction_key`. The robot key is never an attribute: everyone who can see the machine's config
-reads its attributes. It goes in a file on the machine, `key_file` - viam-server writes a module's environment into the
-machine's logs when it starts it, so SEQUENCES_API_KEY there works but is logged.
+`instruction` under `instruction_key`. A robot a planner plans for names it, `planner`, beside the policy it runs, one
+of that planner's members. The robot key is never an attribute: everyone who can see the machine's config reads its
+attributes. It goes in a file on the machine, `key_file` - viam-server writes a module's environment into the machine's
+logs when it starts it, so SEQUENCES_API_KEY there works but is logged.
 """
 from __future__ import annotations
 
@@ -18,8 +19,9 @@ from typing import Any, Mapping, Optional
 
 UNITS = ("radians", "degrees")
 _KEY_ATTRS = ("api_key", "key", "SEQUENCES_API_KEY")
-_KNOWN = ("policy", "hz", "arm", "gripper", "cameras", "joints_key", "gripper_key", "instruction", "instruction_key",
-          "action_key", "replan_at", "valid_len", "joint_unit", "gripper_threshold", "max_joint_step_deg", "key_file")
+_KNOWN = ("policy", "planner", "hz", "arm", "gripper", "cameras", "joints_key", "gripper_key", "instruction",
+          "instruction_key", "action_key", "replan_at", "valid_len", "joint_unit", "gripper_threshold",
+          "max_joint_step_deg", "key_file")
 
 
 @dataclass(frozen=True)
@@ -27,6 +29,7 @@ class Settings:
     policy: str
     hz: float
     arm: str
+    planner: Optional[str] = None             # the planner it runs the policy through; unset, the policy as deployed
     cameras: dict[str, str] = field(default_factory=dict)   # the key the policy reads a frame by -> the camera
     gripper: Optional[str] = None
     joints_key: str = "joints"
@@ -101,7 +104,8 @@ def read(attrs: Mapping[str, Any]) -> Settings:
     if unit not in UNITS:
         raise ValueError(f"joint_unit must be one of {', '.join(UNITS)}, not {unit!r}")
     s = Settings(policy=_name(attrs, "policy", required=True), hz=_number(attrs, "hz", None, low=0, strict=True),
-                 arm=_name(attrs, "arm", required=True), cameras=_cameras(attrs.get("cameras")),
+                 arm=_name(attrs, "arm", required=True), planner=_name(attrs, "planner"),
+                 cameras=_cameras(attrs.get("cameras")),
                  gripper=_name(attrs, "gripper"), joints_key=_name(attrs, "joints_key", default="joints"),
                  gripper_key=_name(attrs, "gripper_key", default="gripper"), instruction=_name(attrs, "instruction"),
                  instruction_key=_name(attrs, "instruction_key", default="instruction"),

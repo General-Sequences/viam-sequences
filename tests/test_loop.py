@@ -10,11 +10,12 @@ import asyncio
 
 import numpy as np
 import pytest
-from fakes import FakeArm, FakeCamera, FakeGripper, FakePolicy
+from fakes import FakeArm, FakeCamera, FakeGripper, FakePolicy, no_plan_yet
 
 import sequence_ai
 import settings
 from loop import Loop
+from sequence_ai.errors import from_response
 
 
 async def inline(fn, *args, **kwargs):
@@ -38,6 +39,31 @@ def run(loop, ticks):
 
     loop.sleep = sleep
     asyncio.run(loop.run())
+
+
+def run_timed(attrs, arm, policy, ticks):
+    """`run` on a clock of its own, each tick a quarter of a second: the loop, the state it said on each tick and the
+    time of each act."""
+    now, states, asked = {"t": 0.0}, [], []
+    answer = policy.act
+
+    def act():
+        asked.append(now["t"])
+        return answer()
+
+    policy.act = act
+    loop = make(attrs, arm, {}, None, policy, clock=lambda: now["t"])
+
+    async def sleep(_s):
+        states.append(loop.state)
+        await asyncio.sleep(0)                      # an act asked for on this tick runs at this tick's time
+        now["t"] += 0.25
+        if len(states) >= ticks:
+            loop.request_stop()
+
+    loop.sleep = sleep
+    asyncio.run(loop.run())
+    return loop, states, asked
 
 
 def degrees(arm):
@@ -139,6 +165,61 @@ def test_a_policy_error_stops_it_and_says_so():
     run(loop, 4)
     status = loop.status()
     assert status["state"] == "error" and "the deployment is stopped" in status["error"] and arm.stops == 1
+
+
+THROUGH = {"planner": "site-planner_user"}
+
+
+def test_through_a_planner_the_arm_holds_and_it_observes_until_the_first_plan_asking_again_when_told():
+    """No failure: what it observes is what the planner plans from, and an act in every step would be a refusal in every
+    step. {the worker's 409: "waiting_for_plan", retry_after_s}"""
+    arm, policy = FakeArm([0.0] * 6), FakePolicy([no_plan_yet(0.5), no_plan_yet(0.5), rows(1, 2)])
+    loop, states, asked = run_timed(THROUGH, arm, policy, 9)
+    # asked at 0, told at 0.25 to ask again 0.5 later; asked at 0.75, told at 1.0; asked at 1.5, the plan's rows at 1.75
+    assert asked == [0.0, 0.75, 1.5]
+    assert states == ["running"] + ["waiting_for_plan"] * 6 + ["running"] * 2
+    assert len(policy.observed) == 9 and [m[0] for m in degrees(arm)] == [1, 2]
+    status = loop.status()
+    assert (status["planner"], status["acts"], status["holds"]) == ("site-planner_user", 1, 7) and "error" not in status
+
+
+def test_told_no_time_it_asks_again_in_a_second_and_a_stop_ends_the_wait():
+    arm, policy = FakeArm([0.0] * 6), FakePolicy([no_plan_yet()])
+    loop, states, asked = run_timed(THROUGH, arm, policy, 12)
+    assert asked == [0.0, 1.25, 2.5] and states[-1] == "waiting_for_plan" and arm.moves == []
+    status = loop.status()
+    assert status["state"] == "stopped" and status["acts"] == 0 and "error" not in status and "last_act_s" not in status
+    assert policy.ended == 1 and arm.stops == 1
+
+
+@pytest.mark.parametrize("answers, ticks, played", [
+    # the rows out at 4, it holds: nothing played since the act that answers, so the new rows start at the first
+    ([rows(1, 2, 3, 4), no_plan_yet(0.25), no_plan_yet(0.25), rows(11, 12, 13, 14)], 10, [1, 2, 3, 4, 11, 12]),
+    # the rows last past the act that answers: one played since it was asked for, so the new rows start at the second
+    ([rows(1, 2, 3, 4, 5, 6), no_plan_yet(0.25), rows(21, 22, 23, 24, 25, 26)], 7, [1, 2, 3, 4, 5, 22]),
+])
+def test_with_no_plan_in_mid_run_it_plays_what_it_has_and_keeps_asking_and_the_answer_joins_where_it_is(answers, ticks,
+                                                                                                        played):
+    """A worker a robot moved to has no plan for its episode until the planner's next round: as a late answer, not a
+    failure."""
+    arm = FakeArm([0.0] * 6)
+    loop, states, _ = run_timed({**THROUGH, "replan_at": 2}, arm, FakePolicy(answers), ticks)
+    assert [m[0] for m in degrees(arm)] == played
+    assert "waiting_for_plan" in states and states[-1] == "running" and "error" not in loop.status()
+
+
+def test_any_other_refusal_stops_it_and_says_so():
+    other = from_response(409, {"detail": "the deployment is stopped", "code": "conflict",
+                                "details": {"reason": "stopped"}})
+    arm = FakeArm([0.0] * 6)
+    loop = make(THROUGH, arm, {}, None, FakePolicy([other]))
+    run(loop, 4)
+    status = loop.status()
+    assert status["state"] == "error" and "the deployment is stopped" in status["error"] and arm.stops == 1
+
+
+def test_a_robot_running_its_policy_alone_says_no_planner():
+    assert "planner" not in make({}, FakeArm([0.0] * 6), {}, None, FakePolicy()).status()
 
 
 def test_stop_cuts_through_an_act_that_waits_and_ends_the_episode():

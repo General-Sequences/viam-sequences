@@ -8,6 +8,10 @@ An answer is due once `replan_at` rows have been played since the last one was a
 replan_at is unset, as a policy's action_chunk_replan_at says - and the answer, when it comes, joins where the robot
 is: as many rows in as were played since it was asked for. A robot that played none (it held) starts at the first.
 
+A robot running its policy through a planner has no answer until the first plan comes: an act answered
+sequence_ai.WaitingForPlan is no failure. It goes on as while any answer is on its way - playing the rows it has, then
+holding, and observing, which is what the planner plans from - and asks again when that answer says.
+
 WHY each call to the policy runs on a thread: its first observe waits out a worker that is starting, and an act waits
 for its answer - the module's own loop has to stay free for `stop`, which interrupts either.
 """
@@ -29,6 +33,7 @@ import sequence_ai
 from settings import Settings
 
 _RGBA_HEADER = 12          # a Viam RGBA frame's header: its signature, width and height, 4 bytes each
+PLAN_AGAIN_S = 1.0         # seconds until an act is asked again for a plan, where its answer does not say
 
 
 class Refused(Exception):
@@ -82,8 +87,8 @@ class Loop:
         """What the machine's page shows. A value not known yet - no act answered, no error - is left out: a Viam
         command's answer carries a null as 0, which would read as an act of 0 s."""
         s = self.settings
-        out = {"state": self.state, "policy": s.policy, "hz": s.hz, "steps": self.steps, "acts": self.acts,
-               "rows_played": self.rows_played, "holds": self.holds,
+        out = {"state": self.state, "policy": s.policy, "planner": s.planner, "hz": s.hz, "steps": self.steps,
+               "acts": self.acts, "rows_played": self.rows_played, "holds": self.holds,
                "last_act_s": None if self.last_act_s is None else round(self.last_act_s, 3), "error": self.error}
         return {k: v for k, v in out.items() if v is not None}
 
@@ -98,20 +103,30 @@ class Loop:
             rows: Optional[np.ndarray] = None
             row = since_ask = 0
             asked_at = 0.0
+            ask_again_at: Optional[float] = None    # set while its planner has not planned: when the next act is due
             while not self._stopping.is_set():
                 began = self.clock()
                 degrees = list((await self.arm.get_joint_positions()).values)
                 await self.offload(self.policy.observe, await self._observation(degrees))
                 if self._stopping.is_set():
                     break
-                self.state = "running"
                 if pending is not None and pending.done():
-                    rows, pending = self._rows(pending.result()), None
-                    self.acts += 1
-                    self.last_act_s = self.clock() - asked_at
-                    row = since_ask                 # joins where the robot is: the rows it played since asking skipped
-                if pending is None and (rows is None or since_ask >= min(self.settings.replan_at or len(rows),
-                                                                          len(rows))):
+                    done, pending = pending, None
+                    try:
+                        rows = self._rows(done.result())
+                    except sequence_ai.WaitingForPlan as exc:
+                        ask_again_at = self.clock() + (exc.retry_after_s or PLAN_AGAIN_S)
+                    else:
+                        ask_again_at = None
+                        self.acts += 1
+                        self.last_act_s = self.clock() - asked_at
+                        row = since_ask             # joins where the robot is: the rows it played since asking skipped
+                self.state = "running" if ask_again_at is None else "waiting_for_plan"
+                if ask_again_at is None:
+                    due = rows is None or since_ask >= min(self.settings.replan_at or len(rows), len(rows))
+                else:
+                    due = self.clock() >= ask_again_at
+                if pending is None and due:
                     asked_at, since_ask = self.clock(), 0
                     pending = asyncio.ensure_future(self.offload(self.policy.act))
                 if rows is not None and row < len(rows):

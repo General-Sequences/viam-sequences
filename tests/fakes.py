@@ -16,6 +16,14 @@ from viam.proto.common import ResponseMetadata
 from viam.proto.component.arm import JointPositions
 
 import sequence_ai
+from sequence_ai.errors import from_response
+
+
+def no_plan_yet(retry_after_s: float | None = None) -> sequence_ai.WaitingForPlan:
+    """What the SDK raises at a worker's 409 for a robot whose planner has not planned for its episode."""
+    return from_response(409, {"detail": "waiting for site-planner_user to plan for this episode", "code": "conflict",
+                               "retry_after_s": retry_after_s,
+                               "details": {"reason": "waiting_for_plan", "planner": "site-planner_user"}})
 
 
 class FakeArm:
@@ -67,9 +75,9 @@ class FakeGripper:
 
 
 class FakePolicy:
-    """sequence_ai.Policy's calls: `answers` handed out by act() in turn (the last again once they run out); with
-    `hold`, act() waits until interrupt() and raises sequence_ai.Interrupted, as a real act waiting on a starting worker
-    does."""
+    """sequence_ai.Policy's calls: `answers` handed out by act() in turn (the last again once they run out), one that is
+    an exception raised; with `hold`, act() waits until interrupt() and raises sequence_ai.Interrupted, as a real act
+    waiting on a starting worker does."""
 
     def __init__(self, answers: list[Any] | None = None, *, hold: bool = False) -> None:
         self.answers = list(answers or [])
@@ -89,7 +97,10 @@ class FakePolicy:
         if self.hold:
             self.interrupted.wait(10)
             raise sequence_ai.Interrupted("interrupted")
-        return self.answers[min(self.acts, len(self.answers)) - 1]
+        answer = self.answers[min(self.acts, len(self.answers)) - 1]
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
 
     def interrupt(self) -> None:
         self.interrupted.set()

@@ -48,6 +48,7 @@ Add the module to the machine, then the service, naming the arm, gripper and cam
 | Attribute | Required | What it is |
 |---|---|---|
 | `policy` | yes | Your deployed policy's name. |
+| `planner` | no | The planner it runs through, when a planner tells it what to do. See [Through a planner](#through-a-planner). |
 | `hz` | yes | Steps a second: one row of the policy's answer is played each step. |
 | `arm` | yes | The arm the policy drives. |
 | `key_file` | no | The file on the machine that holds the robot key. Unset, `SEQUENCES_API_KEY` from the module's environment. |
@@ -55,7 +56,7 @@ Add the module to the machine, then the service, naming the arm, gripper and cam
 | `cameras` | no | A list of camera names, or a map from the key your policy reads a frame by to the camera. |
 | `joints_key` | no | The key your policy reads the arm's joints by. Default `joints`. |
 | `gripper_key` | no | The key your policy reads the gripper by. Default `gripper`. |
-| `instruction` | no | A sentence handed to your policy with every observation. |
+| `instruction` | no | A sentence handed to your policy with every observation; through a planner, to the planner. |
 | `instruction_key` | no | The key it goes under. Default `instruction`. |
 | `action_key` | no | Where the rows are when your policy answers a map. Default `actions`. |
 | `replan_at` | no | Rows played after asking for an answer before the next is asked for. Default: all of them. |
@@ -64,14 +65,37 @@ Add the module to the machine, then the service, naming the arm, gripper and cam
 | `gripper_threshold` | no | The gripper column at or above it closes the gripper. Default `0.5`. |
 | `max_joint_step_deg` | no | A row that would move a joint further in one step stops the arm instead. Default `20`; `0` turns it off. |
 
+### Through a planner
+
+When a planner tells your policy what to do, name both: `policy` is the policy this machine runs, one of the planner's
+`members=`, and `planner` is the planner. The machine's robot key stays the policy's.
+
+```json
+{
+  "policy": "pick-cube_user",
+  "planner": "site-planner_user",
+  "instruction": "put the cube in the bowl"
+}
+```
+
+- The planner reads what the machine observes. A sentence under `instruction`, `task`, `prompt` or `language_instruction`
+  reaches the planner and never your policy's code, which is told what to do by the plans. Under any other
+  `instruction_key`, your policy reads it too.
+- Until the first plan comes, the arm holds and `status` says `waiting_for_plan`. The module keeps sending what the
+  machine observes, which is what the planner plans from, and asks your policy again when told to.
+- Your policy reads its plan with its `episode`, so it needs an act function or an `@seq.observe` that takes one. See
+  [Planners](https://generalsequences.com/docs/policy/#planner).
+
+With no `planner`, the machine runs `policy` as deployed, and no planner plans for it or wakes for it.
+
 ### Commands
 
 From the machine's page (or any Viam client), `do_command` with:
 
 - `{"command": "start"}`: the policy drives the arm.
 - `{"command": "stop"}`: the arm stops and the episode ends. Drive it by hand with Viam's controls.
-- `{"command": "status"}`: `state` (`idle`, `starting`, `running`, `stopped` or `error`), `steps`, `acts`,
-  `rows_played`, `holds` (steps with no row to play), `last_act_s` and `error`.
+- `{"command": "status"}`: `state` (`idle`, `starting`, `running`, `waiting_for_plan`, `stopped` or `error`), `steps`,
+  `acts`, `rows_played`, `holds` (steps with no row to play), `last_act_s` and `error`.
 
 Every command answers with the status.
 

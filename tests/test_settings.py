@@ -54,3 +54,12 @@ def test_key_file_is_an_absolute_path_on_the_machine():
     assert settings.read(attrs).key_file is None
     with pytest.raises(ValueError, match="key_file"):
         settings.read({**attrs, "key_file": "robot.key"})
+
+
+def test_a_planner_is_named_beside_the_policy_it_runs_and_is_unset_otherwise():
+    attrs = {"policy": "pick-cube_user", "hz": 10, "arm": "a"}
+    assert settings.read(attrs).planner is None
+    s = settings.read({**attrs, "planner": "site-planner_user"})
+    assert (s.policy, s.planner) == ("pick-cube_user", "site-planner_user")
+    with pytest.raises(ValueError, match="planner must be a non-empty string"):
+        settings.read({**attrs, "planner": " "})

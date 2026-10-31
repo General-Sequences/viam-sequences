@@ -1,12 +1,13 @@
 """The service as viam-server runs it: the model its meta.json publishes, the dependencies its config names, and the
 three commands - start, stop, status - a person sends from the machine's page."""
 import asyncio
+import inspect
 import json
 import os
 import pathlib
 
 import pytest
-from fakes import FakeArm, FakeCamera, FakeGripper, FakePolicy
+from fakes import FakeArm, FakeCamera, FakeGripper, FakePolicy, no_plan_yet
 from viam.components.arm import Arm
 from viam.components.camera import Camera
 from viam.components.gripper import Gripper
@@ -81,3 +82,48 @@ def test_the_key_comes_from_key_file_on_the_machine_else_the_environment(tmp_pat
             missing.write_text("\n")
         with pytest.raises(Exception, match=str(missing)):
             module.connect("pick-cube_user", key_file=str(missing))
+
+
+def test_through_the_planner_the_config_names_with_the_same_key(tmp_path, monkeypatch):
+    """connect("<planner>", policy="<its policy>"), which the SDK takes. {the user 10-30 through third plan: "thorugh
+    planner mean you do connect to that planner, and specify you are the pocliy of that planner whne you on the robot"}"""
+    import sequence_ai
+
+    inspect.signature(sequence_ai.connect).bind("site-planner_user", policy="pick-cube_user", api_key="sk-robot-123")
+    seen = []
+    monkeypatch.setattr(sequence_ai, "connect", lambda model, **kw: seen.append((model, kw)))
+    key = tmp_path / "robot.key"
+    key.write_text("sk-robot-123\n")
+    module.connect("pick-cube_user", planner="site-planner_user")
+    module.connect("pick-cube_user", key_file=str(key), planner="site-planner_user")
+    module.connect("pick-cube_user", key_file=str(key))
+    assert seen == [("site-planner_user", {"policy": "pick-cube_user"}),
+                    ("site-planner_user", {"policy": "pick-cube_user", "api_key": "sk-robot-123"}),
+                    ("pick-cube_user", {"api_key": "sk-robot-123"})]
+
+
+def test_a_new_config_while_it_waits_for_a_plan_hands_over_to_a_loop_that_starts(monkeypatch):
+    """Waiting for a plan it is running, as far as a new config goes: the machine's person sent start, and nothing since
+    took it back."""
+    arm, policy = FakeArm([0.0] * 6), FakePolicy([no_plan_yet()])
+    asked = []
+    monkeypatch.setattr(module, "connect", lambda model, **kw: asked.append((model, kw["planner"])) or policy)
+    deps = {Arm.get_resource_name("arm"): arm, Gripper.get_resource_name("hand"): FakeGripper(),
+            Camera.get_resource_name("cam"): FakeCamera()}
+    attrs = {**ATTRS, "planner": "site-planner_user"}
+
+    async def main():
+        service = module.SequencesPolicy.new(config(attrs), deps)
+        await service.do_command({"command": "start"})
+        await asyncio.sleep(0.4)
+        waiting = await service.do_command({"command": "status"})
+        service.reconfigure(config({**attrs, "hz": 10}), deps)
+        await asyncio.sleep(0.4)
+        after = await service.do_command({"command": "status"})
+        await service.close()
+        return waiting, after
+
+    waiting, after = asyncio.run(main())
+    assert asked[0] == ("pick-cube_user", "site-planner_user") and len(asked) == 2
+    assert waiting["state"] == "waiting_for_plan" and waiting["planner"] == "site-planner_user"
+    assert (after["state"], after["hz"]) == ("waiting_for_plan", 10.0)

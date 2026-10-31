@@ -28,23 +28,24 @@ import settings
 from loop import Loop, Refused
 
 
-def connect(model: str, key_file: Optional[str] = None) -> Any:
-    """The policy's connection, sequence_ai.connect: the robot key read from `key_file`, a file on the machine, else
-    SEQUENCES_API_KEY from the module's environment - which viam-server writes into the machine's logs when it starts the
-    module, the key with it; a key file never passes through the config or the logs. [CONFIDENCE: CONFIRMED 100% -
-    viam-server 1.14.0's log on the testing machine, 10-27: "Starting module with following Viam environment variables"
-    listing SEQUENCES_API_KEY=<the key>]"""
+def connect(model: str, key_file: Optional[str] = None, planner: Optional[str] = None) -> Any:
+    """The policy's connection, sequence_ai.connect - through `planner` when one is named, with the same robot key: read
+    from `key_file`, a file on the machine, else SEQUENCES_API_KEY from the module's environment - which viam-server
+    writes into the machine's logs when it starts the module, the key with it; a key file never passes through the config
+    or the logs. [CONFIDENCE: CONFIRMED 100% - viam-server 1.14.0's log on the testing machine, 10-27: "Starting module
+    with following Viam environment variables" listing SEQUENCES_API_KEY=<the key>]"""
     import sequence_ai
 
+    name, through = (planner, {"policy": model}) if planner else (model, {})
     if key_file is None:
-        return sequence_ai.connect(model)
+        return sequence_ai.connect(name, **through)
     try:
         key = pathlib.Path(key_file).read_text().strip()
     except OSError as exc:
         raise Refused(f"could not read the robot key from key_file {key_file}: {exc.strerror or exc}") from None
     if not key:
         raise Refused(f"key_file {key_file} is empty: it holds the robot key `seq robot add` printed")
-    return sequence_ai.connect(model, api_key=key)
+    return sequence_ai.connect(name, api_key=key, **through)
 
 
 class SequencesPolicy(Generic, EasyResource):
@@ -69,9 +70,9 @@ class SequencesPolicy(Generic, EasyResource):
         gripper = dependencies[Gripper.get_resource_name(s.gripper)] if s.gripper else None
         cameras = {key: dependencies[Camera.get_resource_name(name)] for key, name in s.cameras.items()}
         old, self.loop = self.loop, Loop(s, arm, cameras, gripper,
-                                         connect=lambda model: connect(model, key_file=s.key_file))
+                                         connect=lambda model: connect(model, key_file=s.key_file, planner=s.planner))
         if old is not None:
-            running = old.state in ("starting", "running")
+            running = old.state in ("starting", "waiting_for_plan", "running")
             old.request_stop()
             asyncio.ensure_future(self._hand_over(old, running))
 
